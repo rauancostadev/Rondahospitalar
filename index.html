@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b2f3a">
+<script>try{var t=localStorage.getItem('rh_theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <title>Ronda Hospitalar</title>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}img{max-width:100%}</style>
 <script>
@@ -11,8 +12,8 @@
    Deixe vazio para usar só neste navegador. Para vários usuários compartilharem os mesmos dados,
    preencha as duas linhas abaixo com os dados do seu projeto Supabase (veja o LEIA-ME). */
 window.RONDA_CONFIG={
-  supabaseUrl:"https://etxrldtdbtlsiltihvhb.supabase.co",   // exemplo: "https://abcdefgh.supabase.co"
-  supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0eHJsZHRkYnRsc2lsdGlodmhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNDIzNjgsImV4cCI6MjEwNjkxODM2OH0.xSGpmBi2a2xlHrxlp3lRRvupJNBx5Qw12WuO-t4Q_m4"    // chave "anon" ou "publishable" do projeto
+  supabaseUrl:"",   // exemplo: "https://abcdefgh.supabase.co"
+  supabaseKey:""    // chave "anon" ou "publishable" do projeto
 };
 </script>
 <script>
@@ -21,7 +22,16 @@ window.RONDA_CONFIG={
    - Com RONDA_CONFIG preenchido: usa o banco compartilhado (Supabase) com código de acesso da equipe. */
 (()=>{
 if(window.claude&&window.claude.use)return;
-const CFG=window.RONDA_CONFIG||{},BASE=String(CFG.supabaseUrl||'').trim().replace(/\/+$/,''),KEY=String(CFG.supabaseKey||'').trim(),REMOTE=!!(BASE&&KEY);
+const CFG=window.RONDA_CONFIG||{},RAWURL=String(CFG.supabaseUrl||'').trim(),KEY=String(CFG.supabaseKey||'').trim(),REMOTE=!!(RAWURL||KEY);
+/* aceita só o endereço do projeto; remove caminhos colados por engano (/rest/v1, link do painel etc.) */
+function normUrl(u){if(!u)return '';if(!/^https?:\/\//i.test(u))u='https://'+u;
+  try{const x=new URL(u),m=/(^|\.)supabase\.com$/.test(x.hostname)&&x.pathname.match(/\/project\/([a-z0-9]+)/i);return m?'https://'+m[1]+'.supabase.co':x.origin}catch(e){return ''}}
+const BASE=normUrl(RAWURL);
+function keyProblem(){
+  if(!KEY)return 'A chave (supabaseKey) não foi preenchida em RONDA_CONFIG.';
+  let role='';try{if(KEY.startsWith('eyJ'))role=JSON.parse(atob(KEY.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).role}catch(e){}
+  if(KEY.startsWith('sb_secret_')||role==='service_role')return 'Esta é a chave SECRETA do projeto e nunca deve ficar em um site. Use a chave anon (ou publishable) em Project Settings → API.';
+  return ''}
 const DB='ronda-hospitalar',ST='docs',mem=new Map(),subs=new Set();let idb=null,bc=null,volatile=false,code='';
 const clone=o=>JSON.parse(JSON.stringify(o));
 const err=(c,m)=>Object.assign(new Error(m),{code:c,message:m});
@@ -62,14 +72,24 @@ function askCode(msg){return new Promise(res=>{
   <button style="background:var(--brand,#0a6c7d);color:var(--on-brand,#fff);border:0;border-radius:8px;padding:10px;font:600 14px var(--font,system-ui);min-height:40px;cursor:pointer">Continuar</button></form>`);
   const i=o.querySelector('#rh-code-i');i.focus();o.querySelector('form').onsubmit=e=>{e.preventDefault();o.remove();res(i.value.trim())}})}
 function fatal(msg){return new Promise(res=>{const o=overlay(`<h1 style="margin:0;font-size:20px">Não foi possível conectar</h1><p style="margin:0;color:var(--ink2,#46606a)">${msg}</p><button style="background:var(--brand,#0a6c7d);color:var(--on-brand,#fff);border:0;border-radius:8px;padding:10px;font:600 14px var(--font,system-ui);min-height:40px;cursor:pointer">Tentar novamente</button>`);o.querySelector('button').onclick=()=>{o.remove();res()}})}
+function explain(e){
+  const m=String(e.message||'');
+  if(e.net)return 'Verifique sua internet e tente de novo.';
+  if(/Invalid path|Invalid URL|Not Found/i.test(m)&&!/function/i.test(m))return 'A URL do projeto parece incorreta. Use apenas o endereço no formato https://xxxxxxxx.supabase.co (Supabase → Project Settings → API → Project URL).';
+  if(e.status===401||e.status===403||/Invalid API key|JWT|apikey/i.test(m))return 'A chave do projeto foi recusada. Copie a chave anon (ou publishable) em Supabase → Project Settings → API.';
+  if(/Could not find the function|PGRST202|schema cache/i.test(m))return 'O script supabase-setup.sql ainda não foi executado neste projeto. Rode-o no SQL Editor do Supabase e tente de novo.';
+  return 'O servidor recusou a conexão ('+esc(m)+'). Confira a URL e a chave em RONDA_CONFIG e se o script supabase-setup.sql foi executado.'}
 async function authenticate(msg){
   for(;;){
+    const kp=keyProblem();if(!BASE){await fatal('A URL em RONDA_CONFIG (supabaseUrl) está vazia ou inválida. Use o formato https://xxxxxxxx.supabase.co.');continue}
+    if(kp){await fatal(esc(kp));continue}
     if(!code){try{code=localStorage.getItem('rh_code')||''}catch(e){}}
-    if(!code){code=await askCode(msg);msg=''}
+    if(!code){try{await rpc('rh_check',{})}catch(e){if(e.code!=='bad_code'){await fatal(explain(e));continue}}
+      code=await askCode(msg);msg=''}
     try{await rpc('rh_check',{});try{localStorage.setItem('rh_code',code)}catch(e){}return}
     catch(e){
       if(e.code==='bad_code'){code='';try{localStorage.removeItem('rh_code')}catch(x){}msg='Código incorreto. Tente novamente.';continue}
-      await fatal(e.net?'Verifique sua internet e tente de novo.':'O servidor recusou a conexão ('+esc(e.message)+'). Confira a URL e a chave em RONDA_CONFIG e se o script supabase-setup.sql foi executado.')}
+      await fatal(explain(e))}
   }}
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 let since=0,polling=false,pollT=null;const pendingPaths=new Map();
@@ -492,7 +512,7 @@ function viewLogin(){
 function viewSetup(){
   root.innerHTML=`<div class="auth">${authSide()}<div class="auth-r"><form class="auth-card" id="f-setup">
   <div><h1>Primeiro acesso</h1><p style="color:var(--ink2);margin:4px 0 0">Crie o administrador e dê nome ao hospital. Depois você cadastra salas, equipamentos e checklists.</p></div>
-  <label class="field"><span>Nome do hospital</span><input type="text" name="hospital" id="st-h" value="Liga Contra o Câncer" required></label>
+  <label class="field"><span>Nome do hospital</span><input type="text" name="hospital" id="st-h" value="Hospital Regional" required></label>
   <label class="field"><span>Seu nome completo</span><input type="text" name="nome" id="st-n" required></label>
   <label class="field"><span>Usuário de acesso</span><input type="text" name="login" id="st-l" autocomplete="username" required></label>
   <label class="field"><span>Senha (mínimo 6 caracteres)</span><input type="password" name="senha" id="st-s" autocomplete="new-password" minlength="6" required></label>
@@ -915,7 +935,7 @@ addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').firstChild)close
 /* ====== eventos ====== */
 const ACT={
  nav:el=>go(el.dataset.p),
- theme:()=>{const d=document.documentElement,cur=d.dataset.theme||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');d.dataset.theme=cur==='dark'?'light':'dark';if(page==='painel')setTimeout(drawLine,0)},
+  theme:()=>{const d=document.documentElement,cur=d.dataset.theme||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'),next=cur==='dark'?'light':'dark';d.dataset.theme=next;try{localStorage.setItem('rh_theme',next)}catch(e){}if(page==='painel')setTimeout(drawLine,0)},
  logout,
  pickSala:el=>startRonda(el.dataset.id),
  resumeRonda:()=>{$('#main').innerHTML=rondaForm();Object.keys(R.itens).forEach(()=>{});progress()},

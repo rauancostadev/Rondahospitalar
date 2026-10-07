@@ -12,8 +12,8 @@
    Deixe vazio para usar só neste navegador. Para vários usuários compartilharem os mesmos dados,
    preencha as duas linhas abaixo com os dados do seu projeto Supabase (veja o LEIA-ME). */
 window.RONDA_CONFIG={
-  supabaseUrl:"https://etxrldtdbtlsiltihvhb.supabase.co",   // exemplo: "https://abcdefgh.supabase.co"
-  supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0eHJsZHRkYnRsc2lsdGlodmhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNDIzNjgsImV4cCI6MjEwNjkxODM2OH0.xSGpmBi2a2xlHrxlp3lRRvupJNBx5Qw12WuO-t4Q_m4"    // chave "anon" ou "publishable" do projeto
+  supabaseUrl:"",   // exemplo: "https://abcdefgh.supabase.co"
+  supabaseKey:""    // chave "anon" ou "publishable" do projeto
 };
 </script>
 <script>
@@ -364,6 +364,7 @@ img.thumb{display:block}
 .fg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .fg .full{grid-column:1/-1}
 .hint{font-size:12px;color:var(--muted)}
+.pw:not(.show){-webkit-text-security:disc}
 .chk{display:flex;gap:8px;align-items:center;font-weight:500} .chk input{width:18px;height:18px}
 .irow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
 .irow input{flex:1}
@@ -512,7 +513,7 @@ function viewLogin(){
 function viewSetup(){
   root.innerHTML=`<div class="auth">${authSide()}<div class="auth-r"><form class="auth-card" id="f-setup">
   <div><h1>Primeiro acesso</h1><p style="color:var(--ink2);margin:4px 0 0">Crie o administrador e dê nome ao hospital. Depois você cadastra salas, equipamentos e checklists.</p></div>
-  <label class="field"><span>Nome do hospital</span><input type="text" name="hospital" id="st-h" value="Liga Contra o Câncer" required></label>
+  <label class="field"><span>Nome do hospital</span><input type="text" name="hospital" id="st-h" value="Hospital Regional" required></label>
   <label class="field"><span>Seu nome completo</span><input type="text" name="nome" id="st-n" required></label>
   <label class="field"><span>Usuário de acesso</span><input type="text" name="login" id="st-l" autocomplete="username" required></label>
   <label class="field"><span>Senha (mínimo 6 caracteres)</span><input type="password" name="senha" id="st-s" autocomplete="new-password" minlength="6" required></label>
@@ -829,7 +830,8 @@ function fieldHtml(f,v){
   let inp;
   if(f.t==='select')inp=`<select name="${f.k}" id="${id}" ${f.req?'required':''}>${f.blank!==undefined?`<option value="">${f.blank}</option>`:''}${f.opts().map(([o,l])=>`<option value="${esc(o)}" ${String(v)===String(o)?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
   else if(f.t==='textarea')inp=`<textarea name="${f.k}" id="${id}">${esc(v||'')}</textarea>`;
-  else inp=`<input type="${f.t||'text'}" name="${f.k}" id="${id}" value="${f.t==='password'?'':esc(v??'')}" ${f.req?'required':''} ${f.list?`list="dl-${f.k}"`:''} ${f.t==='password'?'autocomplete="new-password"':''}>${f.list?`<datalist id="dl-${f.k}">${f.list().map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`:''}`;
+  else if(f.t==='password')inp=`<div style="display:flex;gap:8px"><input type="text" class="pw" name="${f.k}" id="${id}" value="" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" style="flex:1"><button type="button" class="btn sm" data-act="genPw" style="min-height:38px">Gerar senha forte</button></div>`;
+  else inp=`<input type="${f.t||'text'}" name="${f.k}" id="${id}" value="${esc(v??'')}" ${f.req?'required':''} ${f.list?`list="dl-${f.k}"`:''}>${f.list?`<datalist id="dl-${f.k}">${f.list().map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`:''}`;
   return `<label class="${cls}"><span>${esc(f.l)}${f.req?' *':''}</span>${inp}${f.hint?`<small>${esc(f.hint)}</small>`:''}</label>`;
 }
 const fotoPrev=()=>M.foto.thumb&&!M.foto.remove?`<img class="thumb" style="width:72px;height:72px" src="${M.foto.thumb}" alt="Foto atual">`:`<div class="thumb" style="width:72px;height:72px">${ic('dev',26)}</div>`;
@@ -839,7 +841,7 @@ function openEnt(ent,id){
   M={ent,id,items:(d.itens||[]).map(x=>({...x})),foto:{thumb:d.thumb||null,fotoId:d.fotoId||null,full:null,remove:false},armed:false};
   if(ent==='checklists'&&!id&&!M.items.length)M.items=[{id:'i'+uid(),t:''}];
   modal(`<div class="mh"><h3 style="font-size:16px">${id?'Editar':'Adicionar'} ${E.um}</h3><button class="ic-btn" data-act="closeModal" aria-label="Fechar">${ic('x',16)}</button></div>
-  <form id="f-ent"><div class="mb"><div class="fg">${E.fields.map(f=>fieldHtml(f,d[f.k]??(f.def??(f.t==='check'?false:''))).replace('<label class="field"','<label class="field"')).join('')}</div><div class="err" id="ent-err" role="alert"></div></div>
+  <form id="f-ent" autocomplete="off"><div class="mb"><div class="fg">${E.fields.map(f=>fieldHtml(f,d[f.k]??(f.def??(f.t==='check'?false:''))).replace('<label class="field"','<label class="field"')).join('')}</div><div class="err" id="ent-err" role="alert"></div></div>
   <div class="mf">${id?`<button type="button" class="btn bad sp" data-act="delEnt" id="btn-del">${ic('trash',16)} Excluir</button>`:''}<button type="button" class="btn" data-act="closeModal">Cancelar</button><button class="btn pri" type="submit">Salvar</button></div></form>`,true);
 }
 async function saveEnt(form){
@@ -956,6 +958,7 @@ const ACT={
  itDn:el=>{const i=+el.dataset.i;if(i<M.items.length-1){[M.items[i+1],M.items[i]]=[M.items[i],M.items[i+1]];$('#items').innerHTML=itemsHtml()}},
  rmEntFoto:()=>{M.foto.remove=true;M.foto.full=null;$('#foto-prev').innerHTML=fotoPrev()},
  seedDemo:async el=>{el.disabled=true;busy=true;await seedDemo('#seed-prog');busy=false;toast('Dados de exemplo carregados.');renderView(true)},
+ genPw:el=>{const A='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789',r=crypto.getRandomValues(new Uint32Array(14));const pw=[...r].map(x=>A[x%A.length]).join('');const i=document.getElementById('ff-senha');i.value=pw;i.classList.add('show');const h=i.closest('label').querySelector('small');if(h)h.textContent='Anote esta senha e entregue ao usuário. Depois de salvar ela não poderá ser exibida de novo.'},
  exportBackup:async el=>{el.disabled=true;try{const b=new Blob([await window.__RH_LOCAL.exportJSON()],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='ronda-hospitalar-backup-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);toast('Backup exportado.')}catch(e){toast('Não foi possível exportar o backup.','bad')}el.disabled=false},
  changeCode:()=>window.__RH_LOCAL.changeCode(),
  wipeDemo:async el=>{el.disabled=true;busy=true;await wipeDemo();busy=false;renderView(true)}

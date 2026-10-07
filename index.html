@@ -413,7 +413,7 @@ const PAGES=[['painel','Painel','dash'],['ronda','Nova ronda','clip'],['historic
 const allowed=p=>p!=='cadastros'||me.role==='admin';
 function renderShell(){
   const ini=me.nome.split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
-  root.innerHTML=`<div class="app"><aside class="side"><div class="brand"><div class="logo">${ic('cross',20)}</div><div><b>${esc(S.cfg.hospital||'Ronda Hospitalar')}</b><span>Ronda e conformidade</span></div></div>
+  root.innerHTML=`<div class="app"><aside class="side"><div class="brand"><div class="logo">${ic('cross',20)}</div><div><b>${esc(S.cfg.hospital||'Ronda Hospitalar')}</b><span>Ronda Hospitalar</span></div></div>
   <nav class="nav" id="nav" aria-label="Principal">${PAGES.filter(p=>allowed(p[0])).map(p=>`<button data-act="nav" data-p="${p[0]}">${ic(p[2])}<span>${p[1]}</span></button>`).join('')}</nav>
   <div class="side-foot"><div class="me"><div class="avatar">${esc(ini)}</div><div><b>${esc(me.nome)}</b><span>${ROLE[me.role]||''}</span></div></div>
   <div class="row"><button class="ghost-d" data-act="theme" aria-label="Alternar tema">${ic('moon')}<span>Tema</span></button><button class="ghost-d" data-act="logout" aria-label="Sair">${ic('out')}<span>Sair</span></button></div></div></aside>

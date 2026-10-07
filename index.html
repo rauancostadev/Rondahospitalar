@@ -7,56 +7,148 @@
 <title>Ronda Hospitalar</title>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}img{max-width:100%}</style>
 <script>
-/* Armazenamento local (IndexedDB) com a mesma interface do banco do Claude.
-   Só é ativado quando a página roda fora do claude.ai (ex.: GitHub Pages). */
+/* ===== CONFIGURAÇÃO DO BANCO COMPARTILHADO =====
+   Deixe vazio para usar só neste navegador. Para vários usuários compartilharem os mesmos dados,
+   preencha as duas linhas abaixo com os dados do seu projeto Supabase (veja o LEIA-ME). */
+window.RONDA_CONFIG={
+  supabaseUrl:"https://etxrldtdbtlsiltihvhb.supabase.co/rest/v1/",   // exemplo: "https://abcdefgh.supabase.co"
+  supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0eHJsZHRkYnRsc2lsdGlodmhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNDIzNjgsImV4cCI6MjEwNjkxODM2OH0.xSGpmBi2a2xlHrxlp3lRRvupJNBx5Qw12WuO-t4Q_m4"    // chave "anon" ou "publishable" do projeto
+};
+</script>
+<script>
+/* Camada de dados da Ronda Hospitalar fora do claude.ai (GitHub Pages).
+   - Sem configuração: guarda tudo neste navegador (IndexedDB).
+   - Com RONDA_CONFIG preenchido: usa o banco compartilhado (Supabase) com código de acesso da equipe. */
 (()=>{
 if(window.claude&&window.claude.use)return;
-const DB='ronda-hospitalar',ST='docs',mem=new Map(),subs=new Set();let idb=null,bc=null,volatile=false;
+const CFG=window.RONDA_CONFIG||{},BASE=String(CFG.supabaseUrl||'').trim().replace(/\/+$/,''),KEY=String(CFG.supabaseKey||'').trim(),REMOTE=!!(BASE&&KEY);
+const DB='ronda-hospitalar',ST='docs',mem=new Map(),subs=new Set();let idb=null,bc=null,volatile=false,code='';
 const clone=o=>JSON.parse(JSON.stringify(o));
-const err=(code,message)=>Object.assign(new Error(message),{code,message});
+const err=(c,m)=>Object.assign(new Error(m),{code:c,message:m});
 const split=p=>{const i=p.indexOf('/');return[p.slice(0,i),p.slice(i+1)]};
-function open(){return new Promise(res=>{try{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore(ST,{keyPath:'p'});
-  r.onsuccess=()=>res(r.result);r.onerror=()=>res(null);r.onblocked=()=>res(null)}catch(e){res(null)}})}
-const tx=(mode,fn)=>new Promise((res,rej)=>{if(!idb)return res();const t=idb.transaction(ST,mode),s=t.objectStore(ST);fn(s);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)});
-async function loadAll(){mem.clear();if(!idb)return;await new Promise((res,rej)=>{const r=idb.transaction(ST).objectStore(ST).getAll();r.onsuccess=()=>{r.result.forEach(x=>mem.set(x.p,x.d));res()};r.onerror=()=>rej(r.error)})}
 let pend=false;const notify=()=>{if(pend)return;pend=true;queueMicrotask(()=>{pend=false;subs.forEach(s=>s.run())})};
-const persist=async(p,d)=>{if(d===null)await tx('readwrite',s=>s.delete(p));else await tx('readwrite',s=>s.put({p,d}));try{bc&&bc.postMessage(1)}catch(e){}};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ---------- modo local (IndexedDB) ---------- */
+const L={
+  open(){return new Promise(res=>{try{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore(ST,{keyPath:'p'});r.onsuccess=()=>res(r.result);r.onerror=()=>res(null);r.onblocked=()=>res(null)}catch(e){res(null)}})},
+  tx(mode,fn){return new Promise((res,rej)=>{if(!idb)return res();const t=idb.transaction(ST,mode);fn(t.objectStore(ST));t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)})},
+  async loadAll(){mem.clear();if(!idb)return;await new Promise((res,rej)=>{const r=idb.transaction(ST).objectStore(ST).getAll();r.onsuccess=()=>{r.result.forEach(x=>mem.set(x.p,x.d));res()};r.onerror=()=>rej(r.error)})},
+  async persist(p,d){if(d===null)await L.tx('readwrite',s=>s.delete(p));else await L.tx('readwrite',s=>s.put({p,d}));try{bc&&bc.postMessage(1)}catch(e){}},
+  async init(){idb=await L.open();if(!idb){volatile=true;console.warn('IndexedDB indisponível: dados só ficam na memória desta aba.')}
+    try{await L.loadAll()}catch(e){console.error(e)}
+    try{bc=new BroadcastChannel(DB);bc.onmessage=async()=>{try{await L.loadAll();notify()}catch(e){}}}catch(e){}}
+};
+
+/* ---------- modo compartilhado (Supabase via funções SQL protegidas por código) ---------- */
+let badge=null;
+function status(ok,msg){
+  if(ok){if(badge){badge.remove();badge=null}return}
+  if(!badge){badge=document.createElement('div');badge.setAttribute('role','status');badge.style.cssText='position:fixed;left:12px;bottom:12px;z-index:95;background:var(--warn-bg,#fdf0d0);color:var(--warn,#855400);border:1px solid var(--line2,#ccc);padding:8px 12px;border-radius:10px;font:500 13px var(--font,system-ui);box-shadow:0 4px 14px rgba(0,0,0,.2)';document.body.appendChild(badge)}
+  badge.textContent=msg||'Sem conexão com o servidor. Tentando novamente…'}
+async function rpc(fn,args){
+  const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),25000),h={'Content-Type':'application/json',apikey:KEY};
+  if(KEY.startsWith('eyJ'))h.Authorization='Bearer '+KEY;
+  let r;try{r=await fetch(`${BASE}/rest/v1/rpc/${fn}`,{method:'POST',headers:h,body:JSON.stringify({p_code:code,...args}),signal:ctl.signal})}
+  catch(e){throw Object.assign(err('unavailable','Sem conexão com o servidor.'),{net:true})}finally{clearTimeout(t)}
+  const txt=await r.text();let j=null;try{j=txt?JSON.parse(txt):null}catch(e){}
+  if(!r.ok){const m=(j&&(j.message||j.hint))||txt||('HTTP '+r.status);throw Object.assign(err(/codigo_invalido/.test(m)?'bad_code':'unavailable',m),{status:r.status})}
+  return j}
+function overlay(html){const o=document.createElement('div');o.style.cssText='position:fixed;inset:0;z-index:100;background:var(--bg,#f2f5f6);color:var(--ink,#0e2830);display:grid;place-items:center;padding:16px;font:14px/1.5 var(--font,system-ui)';
+  o.innerHTML=`<div style="width:100%;max-width:400px;display:grid;gap:14px;background:var(--surface,#fff);border:1px solid var(--line,#dce5e8);border-radius:14px;padding:24px;box-shadow:0 8px 30px rgba(0,0,0,.12)">${html}</div>`;document.body.appendChild(o);return o}
+function askCode(msg){return new Promise(res=>{
+  const o=overlay(`<h1 style="margin:0;font-size:20px">Código de acesso da equipe</h1><p style="margin:0;color:var(--ink2,#46606a)">Digite o código fornecido pelo administrador para abrir a base de dados compartilhada. Ele fica salvo neste aparelho.</p>
+  <form id="rh-code" style="display:grid;gap:12px"><input id="rh-code-i" type="password" autocomplete="off" required placeholder="Código de acesso" style="width:100%;padding:10px 12px;border:1px solid var(--line2,#c6d4d9);border-radius:8px;background:var(--surface,#fff);color:inherit;font:inherit;min-height:40px"><div role="alert" style="color:var(--bad,#b42323);font-weight:500;min-height:20px">${msg||''}</div>
+  <button style="background:var(--brand,#0a6c7d);color:var(--on-brand,#fff);border:0;border-radius:8px;padding:10px;font:600 14px var(--font,system-ui);min-height:40px;cursor:pointer">Continuar</button></form>`);
+  const i=o.querySelector('#rh-code-i');i.focus();o.querySelector('form').onsubmit=e=>{e.preventDefault();o.remove();res(i.value.trim())}})}
+function fatal(msg){return new Promise(res=>{const o=overlay(`<h1 style="margin:0;font-size:20px">Não foi possível conectar</h1><p style="margin:0;color:var(--ink2,#46606a)">${msg}</p><button style="background:var(--brand,#0a6c7d);color:var(--on-brand,#fff);border:0;border-radius:8px;padding:10px;font:600 14px var(--font,system-ui);min-height:40px;cursor:pointer">Tentar novamente</button>`);o.querySelector('button').onclick=()=>{o.remove();res()}})}
+async function authenticate(msg){
+  for(;;){
+    if(!code){try{code=localStorage.getItem('rh_code')||''}catch(e){}}
+    if(!code){code=await askCode(msg);msg=''}
+    try{await rpc('rh_check',{});try{localStorage.setItem('rh_code',code)}catch(e){}return}
+    catch(e){
+      if(e.code==='bad_code'){code='';try{localStorage.removeItem('rh_code')}catch(x){}msg='Código incorreto. Tente novamente.';continue}
+      await fatal(e.net?'Verifique sua internet e tente de novo.':'O servidor recusou a conexão ('+esc(e.message)+'). Confira a URL e a chave em RONDA_CONFIG e se o script supabase-setup.sql foi executado.')}
+  }}
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let since=0,polling=false,pollT=null;const pendingPaths=new Map();
+async function pull(){
+  if(polling)return;polling=true;
+  try{let changed=false,from=since>0?Math.max(1,since-100):0;
+    for(;;){const rows=await rpc('rh_pull',{p_since:from,p_fotos:false})||[];
+      for(const r of rows){if(r.seq>since)since=r.seq;from=r.seq;if(pendingPaths.has(r.p))continue;
+        if(r.deleted){if(mem.delete(r.p))changed=true}
+        else{const o=mem.get(r.p);if(JSON.stringify(o)!==JSON.stringify(r.d)){mem.set(r.p,r.d);changed=true}}}
+      if(rows.length<1000)break}
+    status(true);if(changed)notify();
+  }catch(e){
+    if(e.code==='bad_code'){code='';try{localStorage.removeItem('rh_code')}catch(x){}clearInterval(pollT);await authenticate('O código de acesso mudou. Digite o novo código.');since=0;mem.clear();polling=false;await pull();pollT=setInterval(tick,4000);return}
+    status(false)}
+  finally{polling=false}}
+const tick=()=>{if(!document.hidden)pull()};
+let q=[],timer=null,flushing=false;
+const inc=p=>pendingPaths.set(p,(pendingPaths.get(p)||0)+1),dec=p=>{const n=(pendingPaths.get(p)||1)-1;if(n)pendingPaths.set(p,n);else pendingPaths.delete(p)};
+function enqueue(p,d){return new Promise((res,rej)=>{q.push({p,d,res,rej});inc(p);if(!timer)timer=setTimeout(flush,25)})}
+async function flush(){
+  timer=null;if(flushing){timer=setTimeout(flush,40);return}flushing=true;
+  try{while(q.length){const batch=[];let size=0;
+      while(q.length&&batch.length<50&&(!batch.length||size<500000)){const it=q.shift();batch.push(it);size+=it.d?JSON.stringify(it.d).length:20}
+      let lastErr=null;
+      for(let k=0;k<3;k++){try{await rpc('rh_put_many',{p_items:batch.map(i=>({p:i.p,d:i.d}))});lastErr=null;break}catch(e){lastErr=e;if(e.code==='bad_code'||e.status===400||e.status===413)break;await sleep(600*(k+1))}}
+      batch.forEach(i=>{dec(i.p);lastErr?i.rej(lastErr):i.res()});
+      if(lastErr)status(false,lastErr.net?undefined:'Não foi possível salvar no servidor.');
+    }}finally{flushing=false}}
+const R={
+  async init(){await authenticate('');await pull();pollT=setInterval(tick,4000);document.addEventListener('visibilitychange',tick);addEventListener('online',tick)},
+  persist:(p,d)=>enqueue(p,d)
+};
+const B=REMOTE?R:L,persist=(p,d)=>B.persist(p,d);
+
+/* ---------- API compatível com o banco do Claude ---------- */
 const snap=(p,d)=>({id:p.slice(p.lastIndexOf('/')+1),exists:d!==undefined,data:()=>d===undefined?undefined:clone(d),metadata:{fromCache:false,hasPendingWrites:false}});
+const merge=(old,d)=>{const v={...old};for(const[k,x]of Object.entries(clone(d))){if(x&&x.__delete__)delete v[k];else v[k]=x}return v};
+async function write(p,next){
+  const prev=mem.get(p);
+  if(next===null)mem.delete(p);else mem.set(p,next);notify();
+  try{await persist(p,next)}catch(e){if(prev===undefined)mem.delete(p);else mem.set(p,prev);notify();throw e}}
 function docRef(p){
   return{id:p.slice(p.lastIndexOf('/')+1),path:p,
-    async get(){return snap(p,mem.get(p))},
-    async set(d){if(!d||typeof d!=='object')throw err('invalid_argument','corpo inválido');const v=clone(d);mem.set(p,v);notify();await persist(p,v)},
-    async update(d){if(!mem.has(p))throw err('invalid_argument','documento não existe');const v={...mem.get(p)};for(const[k,x]of Object.entries(clone(d))){if(x&&x.__delete__)delete v[k];else v[k]=x}mem.set(p,v);notify();await persist(p,v)},
-    async delete(){mem.delete(p);notify();await persist(p,null)},
+    async get(){if(REMOTE&&p.startsWith('fotos/')&&!mem.has(p)){try{const d=await rpc('rh_get',{p_path:p});if(d)mem.set(p,d)}catch(e){throw e}}return snap(p,mem.get(p))},
+    async set(d){if(!d||typeof d!=='object')throw err('invalid_argument','corpo inválido');await write(p,clone(d))},
+    async update(d){if(!mem.has(p))throw err('invalid_argument','documento não existe');await write(p,merge(mem.get(p),d))},
+    async delete(){await write(p,null)},
     onSnapshot(f){const s={run:()=>f(snap(p,mem.get(p)))};subs.add(s);setTimeout(s.run,0);return()=>subs.delete(s)}};
 }
 function query(col,o,l,w){
-  const q={
-    orderBy(f,d){return query(col,[f,d||'asc'],l,w)},limit(n){return query(col,o,n,w)},
-    where(f,op,v){return query(col,o,l,[...w,[f,op,v]])},
+  const q={orderBy(f,d){return query(col,[f,d||'asc'],l,w)},limit(n){return query(col,o,n,w)},where(f,op,v){return query(col,o,l,[...w,[f,op,v]])},
     rows(){let r=[];mem.forEach((d,p)=>{const[c,id]=split(p);if(c===col)r.push([id,d])});
       w.forEach(([f,op,v])=>{r=r.filter(([,d])=>op==='=='?d[f]===v:op==='!='?d[f]!==v:op==='<'?d[f]<v:op==='<='?d[f]<=v:op==='>'?d[f]>v:op==='>='?d[f]>=v:true)});
-      if(o){const[f,dir]=o;r.sort((a,b)=>{const x=a[1][f],y=b[1][f];return(x==null)-(y==null)||(x>y?1:x<y?-1:0)*(dir==='desc'?-1:1)})}else r.sort((a,b)=>a[0]<b[0]?-1:1);
+      if(o){const[f,dir]=o;r.sort((a,b)=>{const x=a[1][f],y=b[1][f];return((x==null)-(y==null))||(x>y?1:x<y?-1:0)*(dir==='desc'?-1:1)})}else r.sort((a,b)=>a[0]<b[0]?-1:1);
       if(l)r=r.slice(0,l);return r},
     async get(){const r=q.rows().map(([id,d])=>snap(col+'/'+id,d));return{docs:r,size:r.length,empty:!r.length,docChanges:()=>[],metadata:{}}},
     onSnapshot(f){const s={run:()=>{const r=q.rows().map(([id,d])=>snap(col+'/'+id,d));f({docs:r,size:r.length,empty:!r.length,docChanges:()=>[],metadata:{}})}};subs.add(s);setTimeout(s.run,0);return()=>subs.delete(s)}};
-  return q;
-}
+  return q}
 const collection=c=>Object.assign(query(c,null,null,[]),{path:c,doc:id=>docRef(c+'/'+(id||Math.random().toString(36).slice(2))),async add(d){const r=this.doc();await r.set(d);return r}});
 const api={collection,doc:docRef};
+
 window.__RH_LOCAL={
+  mode:REMOTE?'remote':'local',
   volatile:()=>volatile,
-  exportJSON:()=>JSON.stringify({app:'ronda-hospitalar',v:1,exportadoEm:new Date().toISOString(),docs:[...mem.entries()].map(([p,d])=>({p,d}))}),
+  async exportJSON(){
+    const docs=[...mem.entries()].filter(([p])=>!p.startsWith('fotos/')).map(([p,d])=>({p,d}));
+    if(REMOTE){let from=0;for(;;){const rows=await rpc('rh_pull',{p_since:from,p_fotos:true})||[];rows.forEach(r=>{from=r.seq;if(!r.deleted)docs.push({p:r.p,d:r.d})});if(rows.length<1000)break}}
+    else mem.forEach((d,p)=>{if(p.startsWith('fotos/'))docs.push({p,d})});
+    return JSON.stringify({app:'ronda-hospitalar',v:1,exportadoEm:new Date().toISOString(),docs})},
   async importJSON(txt){const j=JSON.parse(txt);if(j.app!=='ronda-hospitalar'||!Array.isArray(j.docs))throw new Error('Arquivo de backup inválido.');
-    for(const x of j.docs){if(typeof x.p!=='string'||!x.p.includes('/')||!x.d||typeof x.d!=='object')continue;mem.set(x.p,x.d);await persist(x.p,x.d)}notify();return j.docs.length},
-  async wipeAll(){const ks=[...mem.keys()];mem.clear();await tx('readwrite',s=>s.clear());notify();return ks.length}
+    let n=0;for(const x of j.docs){if(typeof x.p!=='string'||!x.p.includes('/')||!x.d||typeof x.d!=='object')continue;mem.set(x.p,x.d);await persist(x.p,x.d);n++}notify();return n},
+  async wipeAll(){if(REMOTE)throw new Error('Indisponível no modo compartilhado.');const n=mem.size;mem.clear();await L.tx('readwrite',s=>s.clear());notify();return n},
+  changeCode(){try{localStorage.removeItem('rh_code')}catch(e){}location.reload()}
 };
+let started=null;
 window.claude={use:async n=>{
   if(n!=='db')return null;
-  if(!idb&&!volatile){idb=await open();if(!idb){volatile=true;document.addEventListener('DOMContentLoaded',()=>{});console.warn('IndexedDB indisponível: dados só ficam na memória desta aba.')}
-    try{await loadAll()}catch(e){console.error(e)}
-    try{bc=new BroadcastChannel(DB);bc.onmessage=async()=>{try{await loadAll();notify()}catch(e){}}}catch(e){}}
-  return api}};
+  if(!started)started=B.init();await started;return api}};
 })();
 
 </script>
@@ -400,7 +492,7 @@ function viewLogin(){
 function viewSetup(){
   root.innerHTML=`<div class="auth">${authSide()}<div class="auth-r"><form class="auth-card" id="f-setup">
   <div><h1>Primeiro acesso</h1><p style="color:var(--ink2);margin:4px 0 0">Crie o administrador e dê nome ao hospital. Depois você cadastra salas, equipamentos e checklists.</p></div>
-  <label class="field"><span>Nome do hospital</span><input type="text" name="hospital" id="st-h" value="Liga Contra o Câncer" required></label>
+  <label class="field"><span>Nome do hospital</span><input type="text" name="hospital" id="st-h" value="Hospital Regional" required></label>
   <label class="field"><span>Seu nome completo</span><input type="text" name="nome" id="st-n" required></label>
   <label class="field"><span>Usuário de acesso</span><input type="text" name="login" id="st-l" autocomplete="username" required></label>
   <label class="field"><span>Senha (mínimo 6 caracteres)</span><input type="password" name="senha" id="st-s" autocomplete="new-password" minlength="6" required></label>
@@ -413,7 +505,7 @@ const PAGES=[['painel','Painel','dash'],['ronda','Nova ronda','clip'],['historic
 const allowed=p=>p!=='cadastros'||me.role==='admin';
 function renderShell(){
   const ini=me.nome.split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
-  root.innerHTML=`<div class="app"><aside class="side"><div class="brand"><div class="logo">${ic('cross',20)}</div><div><b>${esc(S.cfg.hospital||'Ronda Hospitalar')}</b><span>Ronda Hospitalar</span></div></div>
+  root.innerHTML=`<div class="app"><aside class="side"><div class="brand"><div class="logo">${ic('cross',20)}</div><div><b>${esc(S.cfg.hospital||'Ronda Hospitalar')}</b><span>Ronda e conformidade</span></div></div>
   <nav class="nav" id="nav" aria-label="Principal">${PAGES.filter(p=>allowed(p[0])).map(p=>`<button data-act="nav" data-p="${p[0]}">${ic(p[2])}<span>${p[1]}</span></button>`).join('')}</nav>
   <div class="side-foot"><div class="me"><div class="avatar">${esc(ini)}</div><div><b>${esc(me.nome)}</b><span>${ROLE[me.role]||''}</span></div></div>
   <div class="row"><button class="ghost-d" data-act="theme" aria-label="Alternar tema">${ic('moon')}<span>Tema</span></button><button class="ghost-d" data-act="logout" aria-label="Sair">${ic('out')}<span>Sair</span></button></div></div></aside>
@@ -684,9 +776,12 @@ const ENT={
 };
 const actP=x=>x.ativo===false?'<span class="pill off">Inativo</span>':'<span class="pill okp">Ativo</span>';
 function backupCard(){
-  if(!window.__RH_LOCAL)return '';
-  return `<div class="card" style="max-width:560px;margin-top:14px"><h3>Backup dos dados</h3><p style="margin:0 0 6px;color:var(--ink2)">Neste modo os dados ficam salvos no navegador deste aparelho. Exporte um backup com frequência e use-o para levar os dados a outro computador ou celular.</p>${window.__RH_LOCAL.volatile()?'<p class="err">Atenção: este navegador bloqueou o armazenamento. Os dados serão perdidos ao fechar a aba.</p>':''}
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn" data-act="exportBackup">Exportar backup (.json)</button><label class="btn" style="cursor:pointer">Importar backup<input class="sr" type="file" accept="application/json,.json" data-import></label></div></div>`;
+  const L=window.__RH_LOCAL;if(!L)return '';const rem=L.mode==='remote';
+  return `<div class="card" style="max-width:560px;margin-top:14px"><h3>${rem?'Base compartilhada e backup':'Backup dos dados'}</h3>
+  ${rem?`<p style="margin:0 0 6px;color:var(--ink2)"><span class="pill okp"><i></i>Conectado ao banco compartilhado</span><br>Todos os usuários da equipe veem os mesmos dados, atualizados a cada poucos segundos. Mesmo assim, exporte um backup de vez em quando.</p>`
+  :`<p style="margin:0 0 6px;color:var(--ink2)">Neste modo os dados ficam salvos só no navegador deste aparelho e não são compartilhados. Para a equipe usar a mesma base, configure o banco compartilhado (veja o LEIA-ME). Exporte backups com frequência.</p>`}
+  ${L.volatile()?'<p class="err">Atenção: este navegador bloqueou o armazenamento. Os dados serão perdidos ao fechar a aba.</p>':''}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn" data-act="exportBackup">Exportar backup (.json)</button><label class="btn" style="cursor:pointer">Importar backup<input class="sr" type="file" accept="application/json,.json" data-import></label>${rem?'<button class="btn" data-act="changeCode">Trocar código de acesso neste aparelho</button>':''}</div></div>`;
 }
 function pageCad(){
   const tabs=[...Object.keys(ENT),'hospital'];const nm=k=>k==='hospital'?'Hospital':ENT[k].nome;
@@ -841,7 +936,8 @@ const ACT={
  itDn:el=>{const i=+el.dataset.i;if(i<M.items.length-1){[M.items[i+1],M.items[i]]=[M.items[i],M.items[i+1]];$('#items').innerHTML=itemsHtml()}},
  rmEntFoto:()=>{M.foto.remove=true;M.foto.full=null;$('#foto-prev').innerHTML=fotoPrev()},
  seedDemo:async el=>{el.disabled=true;busy=true;await seedDemo('#seed-prog');busy=false;toast('Dados de exemplo carregados.');renderView(true)},
- exportBackup:()=>{const b=new Blob([window.__RH_LOCAL.exportJSON()],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='ronda-hospitalar-backup-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);toast('Backup exportado.')},
+ exportBackup:async el=>{el.disabled=true;try{const b=new Blob([await window.__RH_LOCAL.exportJSON()],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='ronda-hospitalar-backup-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);toast('Backup exportado.')}catch(e){toast('Não foi possível exportar o backup.','bad')}el.disabled=false},
+ changeCode:()=>window.__RH_LOCAL.changeCode(),
  wipeDemo:async el=>{el.disabled=true;busy=true;await wipeDemo();busy=false;renderView(true)}
 };
 let armT;function confirmArm(fn,msg){if(fn.armed){fn.armed=false;return true}fn.armed=true;toast(msg);clearTimeout(armT);armT=setTimeout(()=>fn.armed=false,3000);return false}

@@ -96,7 +96,7 @@ def main():
         add(page, "salas", fill={"nome": "Farmácia", "setor": "Farmácia"}); save(page)
         # checklists
         open_cad(page, "checklists"); page.click("[data-act=newEnt]")
-        page.fill("#ff-nome", "Ambiente padrão"); page.select_option("#ff-tipo", label="Sala")
+        page.fill("#ff-nome", "Sala padrão"); page.select_option("#ff-tipo", label="Sala")
         page.fill("[data-itx='0']", "Limpeza adequada"); page.click("[data-act=itAdd]"); page.fill("[data-itx='1']", "Extintor válido"); save(page)
         open_cad(page, "checklists"); page.click("[data-act=newEnt]")
         page.fill("#ff-nome", "Equipamento padrão"); page.select_option("#ff-tipo", label="Equipamento")
@@ -105,10 +105,10 @@ def main():
         open_cad(page, "salas")
         for nome in ["UTI 01", "UTI 02", "Farmácia"]:
             page.click(f"tr[data-act=editEnt]:has-text('{nome}')")
-            page.select_option("#ff-checklistId", label="Ambiente padrão"); save(page)
+            page.select_option("#ff-checklistId", label="Sala padrão"); save(page)
             open_cad(page, "salas")
         # equipamento na UTI 01
-        add(page, "equipamentos", fill={"nome": "Monitor", "patrimonio": "PAT-1"}, select={"salaId": "UTI 01", "checklistId": "Equipamento padrão"}); save(page)
+        add(page, "equipamentos", fill={"nome": "Monitor", "patrimonio": "PAT-1", "setor": "UTI"}, select={"checklistId": "Equipamento padrão"}); save(page)
         # tipos de NC com orientação
         add(page, "tiposNC", fill={"nome": "Alarme inoperante", "orient": "Testar, reparar e validar antes de reutilizar."}, select={"sev": "4 · Crítica"}); save(page)
         add(page, "tiposNC", fill={"nome": "Higienização deficiente", "orient": "Refazer a limpeza terminal."}); save(page)
@@ -116,7 +116,7 @@ def main():
         check("Tipos de NC exibem a orientação na tabela", "Testar, reparar e validar" in page.inner_text("table"))
 
         # rondas (cadastro "Nome da ronda")
-        add(page, "modelos", fill={"nome": "Ronda UTI"}, check_boxes=["UTI 01", "UTI 02"])
+        add(page, "modelos", fill={"nome": "Ronda UTI"}, check_boxes=["UTI 01", "UTI 02", "Monitor"])
         opts = [o.inner_text() for o in page.query_selector_all("#ff-responsavelId option")]
         check("Ronda: opção 'Sem responsável' existe", any("Sem responsável" in o for o in opts), opts)
         page.select_option("#ff-responsavelId", label=[o for o in opts if o.startswith("Iara")][0])
@@ -148,7 +148,8 @@ def main():
         check("Iara vê as duas rondas (a sua e a sem responsável)", len(cards) == 2, cards)
         page.click("[data-act=pickRonda]:has-text('Ronda UTI')")
         page.wait_for_selector(".rhead")
-        check("Ronda mostra as 2 salas", page.locator(".sala-h").count() == 2)
+        check("Ronda mostra as 2 salas e o bloco de equipamentos", page.locator(".sala-h").count() == 3 and page.locator(".tag-s").count() == 2 and page.locator(".tag-e").count() == 1)
+        check("Cartões dizem Sala/Equipamento e não usam mais 'Ambiente'", "Ambiente" not in page.inner_text("#view") if page.query_selector("#view") else "Ambiente ·" not in page.inner_text("body"))
         check("Progresso inicial", "0 de" in page.inner_text("#prog-t"))
         # tenta finalizar vazio
         page.click("#btn-sub")
@@ -177,9 +178,9 @@ def main():
         page.wait_for_selector(".top h1:has-text('Nova ronda')")
         check("Após finalizar, inspetor volta para Nova ronda", page.inner_text("h1") == "Nova ronda")
         ex = page.evaluate("RH.execs(RH.S.rondas).map(e=>({n:e.nome,salas:e.docs.length,nc:e.nc,c:e.c}))")
-        check("Execução única com 2 salas", len(ex) == 1 and ex[0]["salas"] == 2 and ex[0]["nc"] == 1, ex)
+        check("Execução única com 2 salas", len(ex) == 1 and ex[0]["salas"] == 3 and ex[0]["nc"] == 1, ex)
         ncs = page.evaluate("RH.S.ncs.map(n=>({m:n.modeloNome,s:n.salaNome,e:n.eqNome,sev:n.sev,f:!!n.fotoId}))")
-        check("NC gerada com ronda, sala, equipamento e foto", ncs == [{"m": "Ronda UTI", "s": "UTI 01", "e": "Monitor", "sev": 4, "f": True}], ncs)
+        check("NC gerada com ronda, sala, equipamento e foto", ncs == [{"m": "Ronda UTI", "s": "Equipamentos", "e": "Monitor", "sev": 4, "f": True}], ncs)
         logout(page)
 
         # ---- inspetor Ivo
@@ -194,7 +195,7 @@ def main():
         login(page, "gestor", "Senha@123")
         check("Gestor não vê Cadastros", nav_labels(page) == ["Painel", "Nova ronda", "Histórico", "Não conformidades"], nav_labels(page))
         page.click("#nav [data-p=historico]")
-        check("Histórico: 1 linha (execução) com 2 salas", page.locator("tbody tr").count() == 1 and "2 salas" in page.inner_text("tbody"))
+        check("Histórico: 1 linha (execução) com 2 salas", page.locator("tbody tr").count() == 1 and "2 salas · 1 equipamento" in page.inner_text("tbody"))
         page.click("tbody tr"); page.wait_for_selector(".mod")
         check("Detalhe da ronda lista as duas salas", "UTI 01" in page.inner_text(".mod") and "UTI 02" in page.inner_text(".mod"))
         page.click(".mh [data-act=closeModal]")
@@ -499,6 +500,114 @@ def main():
         # inspetor também tem o botão
         logout(page); login(page, "bia", "Boa#Senha1")
         check("Inspetor também vê 'alterar minha senha'", page.query_selector("[data-act=minhaSenha]") is not None)
+        ctx.close()
+
+        # ================= CENÁRIO 6: setor em equipamentos, seletor, duplicar, minimizar =================
+        print("\n== Cenário 6: setor/equipamentos, duplicar cadastros e minimizar painel ==")
+        ctx = new_ctx(browser); page = ctx.new_page(); attach_errors(page, "c6")
+        page.goto(f"http://127.0.0.1:{PORT}/{PAGE}")
+        page.wait_for_selector("#f-setup")
+        page.fill("#st-n", "Ana"); page.fill("#st-l", "admin"); page.fill("#st-s", "Senha@123"); page.check("#st-d"); page.click("#st-btn")
+        page.wait_for_selector("#nav"); page.wait_for_selector(".kpis", timeout=20000)
+
+        # Equipamentos: campo Setor no lugar de Sala
+        open_cad(page, "equipamentos")
+        hdr = page.inner_text("thead")
+        check("Tabela de equipamentos mostra Setor (não Sala)", "SETOR" in hdr.upper() and "SALA" not in hdr.upper(), hdr)
+        page.click("tbody tr[data-act=editEnt] >> nth=0")
+        check("Equipamento: campo Sala removido e campo Setor presente", page.query_selector("#ff-salaId") is None and page.query_selector("#ff-setor") is not None)
+        check("Equipamento antigo mostra o setor herdado da sala", page.input_value("#ff-setor") != "")
+        page.fill("#ff-setor", ""); page.click("#f-ent button[type=submit]")
+        check("Equipamento sem setor é recusado", page.query_selector("#f-ent") is not None and page.evaluate("document.querySelector('#ff-setor').validity.valueMissing"))
+        page.click("[data-act=closeModal]")
+
+        # Rondas: Setor (salas e equipamentos) com salas à esquerda e equipamentos à direita
+        open_cad(page, "modelos")
+        page.click("tr[data-act=editEnt]:has-text('Ronda UTI')")
+        check("Rótulo 'Setor (salas e equipamentos)'", "Setor (salas e equipamentos)" in page.inner_text("#f-ent") and "Salas incluídas na ronda" not in page.inner_text("#f-ent"))
+        g = page.locator("#salas-pick .sg").first
+        xs = g.locator("[data-sala]").first.bounding_box()["x"]; xe = g.locator("[data-eq]").first.bounding_box()["x"]
+        check("Salas à esquerda e equipamentos à direita", xe > xs + 100, (xs, xe))
+        n_eq = page.evaluate("[...document.querySelectorAll('[data-eq]:checked')].length")
+        check("Ronda de exemplo vem com os equipamentos marcados", n_eq >= 3, n_eq)
+        # desmarcar tudo do setor UTI e marcar de novo pelo cabeçalho
+        uti = page.locator("#salas-pick .sg", has_text="UTI").first
+        uti.locator("[data-setor-all]").uncheck()
+        check("Cabeçalho do setor desmarca salas e equipamentos", uti.locator("input:checked").count() == 0)
+        uti.locator("[data-setor-all]").check()
+        check("Cabeçalho do setor marca salas e equipamentos", uti.locator("input[data-sala]:checked").count() == uti.locator("input[data-sala]").count() and uti.locator("input[data-eq]:checked").count() == uti.locator("input[data-eq]").count() > 0)
+        uti.locator("[data-eq]").first.uncheck()
+        check("Desmarcar um equipamento desmarca o cabeçalho", not uti.locator("[data-setor-all]").is_checked())
+        # nada marcado => erro
+        page.evaluate("document.querySelectorAll('#salas-pick input[type=checkbox]').forEach(c=>c.checked=false)")
+        page.click("#f-ent button[type=submit]")
+        check("Ronda sem sala e sem equipamento é recusada", "sala ou um equipamento" in page.inner_text("#ent-err"), page.inner_text("#ent-err"))
+        # só equipamento é aceito
+        page.locator("#salas-pick [data-eq]").first.check(); save(page)
+        m = page.evaluate("RH.S.modelos.find(x=>x.nome==='Ronda UTI · plantão diurno')")
+        check("Ronda só com equipamento é salva (salaIds vazio, equipIds com 1)", m["salaIds"] == [] and len(m["equipIds"]) == 1, m)
+        # ronda executável só com equipamentos: Nova ronda mostra bloco "Equipamentos" com etiqueta
+        page.evaluate("RH.put('modelos', RH.S.modelos.find(x=>x.nome==='Ronda UTI · plantão diurno').id, {...RH.S.modelos.find(x=>x.nome==='Ronda UTI · plantão diurno'), responsavelId:''})")
+        page.click("#nav [data-p=ronda]")
+        page.locator("[data-act=pickRonda]", has_text="Ronda UTI").click(); page.wait_for_selector(".rhead")
+        check("Ronda só de equipamentos: etiqueta Equipamento e nenhuma etiqueta Sala", page.locator(".tag-e").count() == 1 and page.locator(".tag-s").count() == 0)
+        page.click("[data-act=cancelRonda]"); page.click("[data-act=cancelRonda]")
+
+        # ronda antiga (sem equipIds): equipamentos vêm das salas
+        page.evaluate("""(async()=>{await RH.put('salas','sx',{nome:'Sala X',setor:'Lab',ativo:true});
+          await RH.put('equipamentos','ex',{nome:'Centrífuga',salaId:'sx',ativo:true});
+          await RH.put('modelos','mx',{nome:'Ronda antiga',salaIds:['sx'],responsavelId:'',freq:24,ativo:true})})()""")
+        page.wait_for_timeout(400)
+        check("Ronda antiga inclui os equipamentos da sala", page.evaluate("RH.equipsDaRonda(RH.S.modelos.find(m=>m.id==='mx')).map(e=>e.id)") == ["ex"])
+        check("Equipamento antigo herda o setor da sala", page.evaluate("RH.setorEq(RH.S.equipamentos.find(e=>e.id==='ex'))") == "Lab")
+        open_cad(page, "modelos"); page.click("tr[data-act=editEnt]:has-text('Ronda antiga')")
+        check("Editar ronda antiga mostra o equipamento marcado", page.locator("[data-eq]:checked").count() == 1)
+        page.click("[data-act=closeModal]")
+
+        # Duplicar cada cadastro
+        for tab, nome_ in [("modelos", "Ronda Centro Cirúrgico"), ("salas", "UTI Neonatal"), ("equipamentos", "Autoclave 1"), ("checklists", "Equipamento · Esterilização"), ("tiposNC", None), ("users", "Marina Albuquerque")]:
+            open_cad(page, tab)
+            col = {"modelos": "modelos", "salas": "salas", "equipamentos": "equipamentos", "checklists": "checklists", "tiposNC": "tiposNC", "users": "users"}[tab]
+            antes = page.evaluate(f"RH.S.{col}.length")
+            check(f"Duplicar: botão em cada linha ({tab})", page.locator("tbody tr").count() == page.locator("tbody [data-act=dupEnt]").count() > 0)
+            alvo = page.locator("tbody tr", has_text=nome_).first if nome_ else page.locator("tbody tr").first
+            alvo.locator("[data-act=dupEnt]").click(); page.wait_for_selector("#f-ent")
+            check(f"Duplicar abre formulário de novo cadastro ({tab})", "Duplicar" in page.inner_text(".mh h3") and page.query_selector("#btn-del") is None)
+            check(f"Duplicar: nome recebe '(cópia)' ({tab})", "(cópia)" in page.input_value("#ff-nome"))
+            if tab == "users":
+                check("Duplicar usuário: login e senha em branco", page.input_value("#ff-login") == "" and page.input_value("#ff-senha") == "")
+                page.fill("#ff-login", "copia"); page.fill("#ff-senha", "Copia#Senha1")
+            if tab == "equipamentos":
+                check("Duplicar equipamento: patrimônio em branco", page.input_value("#ff-patrimonio") == "")
+            if tab == "checklists":
+                check("Duplicar checklist copia os itens", page.locator("[data-itx]").count() >= 3)
+            if tab == "modelos":
+                check("Duplicar ronda copia salas, equipamentos e agenda", page.locator("[data-sala]:checked").count() >= 2 and page.locator("[data-dia]:checked").count() >= 1 and page.locator("[data-hx]").count() >= 1)
+            save(page)
+            check(f"Duplicar salva um novo cadastro ({tab})", page.evaluate(f"RH.S.{col}.length") == antes + 1)
+        check("Original e cópia coexistem (ids distintos)", page.evaluate("new Set(RH.S.modelos.map(m=>m.id)).size === RH.S.modelos.length"))
+        orig = page.evaluate("RH.S.modelos.find(m=>m.nome==='Ronda Centro Cirúrgico')"); cop = page.evaluate("RH.S.modelos.find(m=>m.nome==='Ronda Centro Cirúrgico (cópia)')")
+        check("Cópia da ronda preserva salas e equipamentos", sorted(cop["salaIds"]) == sorted(orig["salaIds"]) and sorted(cop["equipIds"]) == sorted(orig["equipIds"]) and len(orig["salaIds"]) >= 2, (orig, cop))
+
+        # Painel: minimizar e expandir cada gráfico
+        page.click("#nav [data-p=painel]"); page.wait_for_selector("#ch-line svg")
+        cards = page.locator(".card[data-card]")
+        check("Painel: cada gráfico tem botão de minimizar", cards.count() >= 8 and page.locator(".card[data-card] .min-btn").count() == cards.count(), cards.count())
+        c1 = page.locator(".card[data-card=setor]")
+        check("Cartão começa expandido", c1.locator(".card-b").is_visible())
+        c1.locator(".min-btn").click()
+        check("Minimizar esconde o conteúdo e mantém o título", not c1.locator(".card-b").is_visible() and c1.locator("h3").is_visible() and c1.locator(".min-btn").get_attribute("aria-expanded") == "false")
+        page.reload(); page.wait_for_selector(".kpis")
+        check("Estado minimizado é lembrado após recarregar", not page.locator(".card[data-card=setor] .card-b").is_visible())
+        page.locator(".card[data-card=setor] .min-btn").click()
+        check("Expandir mostra o conteúdo de novo", page.locator(".card[data-card=setor] .card-b").is_visible())
+        page.locator(".card[data-card=linha] .min-btn").click(); page.locator(".card[data-card=linha] .min-btn").click()
+        check("Gráfico de linha é redesenhado ao expandir", page.locator("#ch-line svg").count() == 1 and page.locator("#ch-line svg").bounding_box()["width"] > 300)
+        page.click("[data-act=togTodos][data-v=min]")
+        check("Minimizar tudo", page.locator(".card[data-card] .card-b:visible").count() == 0)
+        page.click("[data-act=togTodos][data-v=exp]")
+        check("Expandir tudo", page.locator(".card[data-card] .card-b:visible").count() == page.locator(".card[data-card]").count())
+        page.screenshot(path=os.environ.get("RH_SHOT", "/dev/null") if False else "/tmp/rh_painel.png")
         ctx.close()
 
         browser.close()

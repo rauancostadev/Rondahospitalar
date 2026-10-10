@@ -262,3 +262,29 @@ details.guide{margin-bottom:12px} details.guide summary{cursor:pointer;font-weig
 .dia:has(input:checked){background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
 .chk-list .gt input{width:16px;height:16px}
 .irow input[type=time]{max-width:160px}
+
+/* rótulos Sala / Equipamento na ronda */
+.tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:999px;margin-right:8px;vertical-align:middle;border:1px solid transparent}
+.tag-s{background:var(--brand-soft,#e0f2f1);color:var(--brand,#0b6b78);border-color:currentColor}
+.tag-e{background:#fdf2dc;color:#8a5a00;border-color:currentColor}
+:root[data-theme=dark] .tag-e{background:#3a2e10;color:#f2c668}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .tag-e{background:#3a2e10;color:#f2c668}}
+
+/* seletor Setor: salas à esquerda, equipamentos à direita */
+.setor-pick{max-height:360px;gap:10px}
+.setor-pick .sg{border-bottom:1px solid var(--line);padding-bottom:8px}
+.setor-pick .sg:last-child{border-bottom:0}
+.setor-pick .sg-c{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:4px}
+.setor-pick h5{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:2px 0 4px}
+.setor-pick .chk{align-items:flex-start;overflow-wrap:anywhere}
+@media (max-width:420px){.setor-pick .sg-c{grid-template-columns:1fr}}
+
+/* duplicar e minimizar */
+.th-act,.td-act{width:1%;white-space:nowrap;text-align:right}
+.td-act .btn{gap:6px}
+.top .tools{display:flex;gap:6px;align-items:flex-end}
+.card h3 .ct{min-width:0}
+.min-btn{flex:none}
+.card.min{padding-bottom:6px}
+.card.min h3{margin-bottom:6px}
+.card-b[hidden]{display:none}

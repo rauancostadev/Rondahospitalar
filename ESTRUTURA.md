@@ -77,3 +77,6 @@ RH_PAGE=dist/ronda-hospitalar-teste.html python3 tests/e2e.py   # testa o arquiv
 - **Rondas**: definidas por dias da semana + horários. Fica "em atraso" 1 h depois do horário sem execução; uma execução feita até 1 h antes do horário vale para ele. Rondas antigas (por horas) mantêm a regra antiga até serem editadas.
 - **Checklist "Aplica-se a"**: Sala, Equipamento ou Sala e equipamento.
 - **Orientação padrão**: gerada por regras internas (sem internet nem chave de API) ao digitar o nome do tipo de NC; continua editável.
+- **Setor e equipamentos**: o equipamento pertence a um **Setor** (não mais a uma sala). A ronda escolhe salas e equipamentos por setor (`salaIds` + `equipIds`); rondas antigas sem `equipIds` usam os equipamentos das salas (`RH.equipsDaRonda`). Na execução, cada sala é um bloco e os equipamentos do setor formam outro, com as etiquetas Sala / Equipamento.
+- **Duplicar**: botão em cada linha de Cadastros; abre o formulário já preenchido como novo cadastro (nome + "(cópia)"; usuário sem login/senha; equipamento sem patrimônio).
+- **Painel**: cada gráfico/lista tem botão para minimizar (lembrado neste navegador) e há "Minimizar tudo / Expandir tudo".

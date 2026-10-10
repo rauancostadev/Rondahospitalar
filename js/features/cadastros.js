@@ -7,10 +7,10 @@
 const RH=window.RH;
 const {$,esc,uid,S,st,byId,userName,ic,empty,toast,modal,closeModal,sevPill,actPill,ROLE,SEV}=RH;
 
-const optsSetor=()=>[...new Set(S.salas.map(s=>s.setor).filter(Boolean))];
+const optsSetor=()=>[...new Set([...S.salas.map(s=>s.setor),...S.equipamentos.map(RH.setorEq)].filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 const usersAtivos=()=>S.users.filter(u=>u.ativo!==false);
 /* setores das salas de uma ronda, cada setor uma única vez (ordem alfabética) */
-const setoresDa=m=>[...new Set((m.salaIds||[]).map(id=>byId(S.salas,id)).filter(Boolean).map(x=>x.setor||'Sem setor'))].sort((a,b)=>a.localeCompare(b));
+const setoresDa=m=>[...new Set([...(m.salaIds||[]).map(id=>byId(S.salas,id)).filter(Boolean).map(x=>x.setor||'Sem setor'),...RH.equipsDaRonda(m).map(e=>RH.setorEq(e)||'Sem setor')])].sort((a,b)=>a.localeCompare(b));
 
 /* quem pode realizar a ronda: texto + selo */
 function acessoRonda(m){
@@ -31,18 +31,18 @@ const ENT={
     hint:'Somente o responsável escolhido vê e realiza esta ronda. Com "Sem responsável", todos os inspetores podem realizá-la.'},
    {k:'ativo',l:'Ronda ativa',t:'check',def:true,full:1},
    {k:'agenda',l:'Dias e horários da ronda',t:'agenda',full:1},
-   {k:'salaIds',l:'Salas incluídas na ronda',t:'salas',full:1}]},
+   {k:'salaIds',l:'Setor (salas e equipamentos)',t:'salas',full:1}]},
  salas:{col:'salas',nome:'Salas',um:'sala',
-  cols:[['Sala',s=>`<b>${esc(s.nome)}</b><small>${esc(s.andar||'')}</small>`],['Setor',s=>esc(s.setor||'—')],['Responsável pela sala',s=>esc(userName(s.responsavelId))],['Equipamentos',s=>S.equipamentos.filter(e=>e.salaId===s.id).length],['Rondas',s=>S.modelos.filter(m=>(m.salaIds||[]).includes(s.id)).length||'<span class="pill late">Fora de rondas</span>'],['Situação',actPill]],
+  cols:[['Sala',s=>`<b>${esc(s.nome)}</b><small>${esc(s.andar||'')}</small>`],['Setor',s=>esc(s.setor||'—')],['Responsável pela sala',s=>esc(userName(s.responsavelId))],['Equipamentos no setor',s=>S.equipamentos.filter(e=>s.setor&&RH.setorEq(e)===s.setor).length],['Rondas',s=>S.modelos.filter(m=>(m.salaIds||[]).includes(s.id)).length||'<span class="pill late">Fora de rondas</span>'],['Situação',actPill]],
   fields:[{k:'nome',l:'Nome da sala / ambiente',req:1,full:1},{k:'setor',l:'Setor',req:1,list:optsSetor,hint:'Ex.: UTI, Centro Cirúrgico, Emergência'},{k:'andar',l:'Andar / bloco'},
    {k:'responsavelId',l:'Responsável pela sala (recebe as NCs)',t:'select',full:1,opts:()=>usersAtivos().map(u=>[u.id,u.nome+(u.cargo?' · '+u.cargo:'')]),blank:'Sem responsável'},
    {k:'checklistId',l:'Checklist da sala',t:'select',full:1,opts:()=>S.checklists.filter(c=>['sala','ambos'].includes(c.tipo)).map(c=>[c.id,c.nome]),blank:'Nenhum'},
    {k:'ativo',l:'Sala ativa (aparece nas rondas)',t:'check',def:true,full:1}],
-  canDel:s=>S.equipamentos.some(e=>e.salaId===s.id)?'Mova ou exclua os equipamentos desta sala antes. Ou apenas desative a sala.':S.modelos.some(m=>(m.salaIds||[]).includes(s.id))?'Esta sala faz parte de uma ronda. Remova-a da ronda antes de excluir. Ou apenas desative a sala.':''},
+  canDel:s=>S.modelos.some(m=>(m.salaIds||[]).includes(s.id))?'Esta sala faz parte de uma ronda. Remova-a da ronda antes de excluir. Ou apenas desative a sala.':''},
  equipamentos:{col:'equipamentos',nome:'Equipamentos',um:'equipamento',
-  cols:[['Equipamento',e=>`<div style="display:flex;gap:10px;align-items:center">${RH.thumbEq(e)}<div><b>${esc(e.nome)}</b><small class="mono">${esc(e.patrimonio||'')}</small></div></div>`],['Categoria',e=>esc(e.categoria||'—')],['Sala',e=>esc(byId(S.salas,e.salaId)?.nome||'—')],['Calibração',e=>e.calibracao?RH.calBadge(e.calibracao):'—'],['Situação',actPill]],
+  cols:[['Equipamento',e=>`<div style="display:flex;gap:10px;align-items:center">${RH.thumbEq(e)}<div><b>${esc(e.nome)}</b><small class="mono">${esc(e.patrimonio||'')}</small></div></div>`],['Categoria',e=>esc(e.categoria||'—')],['Setor',e=>esc(RH.setorEq(e)||'—')],['Calibração',e=>e.calibracao?RH.calBadge(e.calibracao):'—'],['Situação',actPill]],
   fields:[{k:'nome',l:'Nome do equipamento',req:1},{k:'patrimonio',l:'Nº de patrimônio / série'},{k:'categoria',l:'Categoria',list:()=>[...new Set(S.equipamentos.map(e=>e.categoria).filter(Boolean))],hint:'Ex.: Suporte à vida, Esterilização'},
-   {k:'salaId',l:'Sala',t:'select',req:1,opts:()=>S.salas.map(s=>[s.id,s.nome]),blank:'Selecione…'},
+   {k:'setor',l:'Setor',req:1,list:optsSetor,hint:'Setor onde o equipamento fica. Ex.: UTI, Centro Cirúrgico'},
    {k:'checklistId',l:'Checklist do equipamento',t:'select',opts:()=>S.checklists.filter(c=>['equipamento','ambos'].includes(c.tipo)).map(c=>[c.id,c.nome]),blank:'Nenhum'},
    {k:'calibracao',l:'Validade da calibração',t:'date'},{k:'foto',l:'Foto do equipamento',t:'photo',full:1},
    {k:'obs',l:'Observações',t:'textarea',full:1},{k:'ativo',l:'Equipamento ativo',t:'check',def:true,full:1}]},
@@ -85,8 +85,8 @@ RH.pages.cadastros=()=>{
     ${demo?`<button class="btn bad" data-act="wipeDemo">Remover dados de exemplo</button>`:`<button class="btn" data-act="seedDemo">Carregar dados de exemplo</button>`}</div>${backupCard()}`;
   }else{
     const E=ENT[st.cadTab],rows=[...S[E.col]].sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
-    body=`<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap"><small>${rows.length} cadastrado${rows.length===1?'':'s'} · clique em uma linha para editar</small><button class="btn pri" data-act="newEnt">${ic('plus',16)} Adicionar ${E.um}</button></div>
-    ${rows.length?`<div class="tw"><table><thead><tr>${E.cols.map(c=>`<th>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr data-act="editEnt" data-id="${r.id}">${E.cols.map(c=>`<td>${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:empty(`Nenhum cadastro em ${E.nome}`,'Use o botão Adicionar para criar o primeiro.')}`;
+    body=`<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap"><small>${rows.length} cadastrado${rows.length===1?'':'s'} · clique em uma linha para editar ou use Duplicar</small><button class="btn pri" data-act="newEnt">${ic('plus',16)} Adicionar ${E.um}</button></div>
+    ${rows.length?`<div class="tw"><table><thead><tr>${E.cols.map(c=>`<th>${c[0]}</th>`).join('')}<th class="th-act"><span class="sr">Ações</span></th></tr></thead><tbody>${rows.map(r=>`<tr data-act="editEnt" data-id="${r.id}">${E.cols.map(c=>`<td>${c[1](r)}</td>`).join('')}<td class="td-act"><button type="button" class="btn sm" data-act="dupEnt" data-id="${r.id}" title="Duplicar este cadastro" aria-label="Duplicar ${esc(r.nome||'')}">${ic('copy',14)} Duplicar</button></td></tr>`).join('')}</tbody></table></div>`:empty(`Nenhum cadastro em ${E.nome}`,'Use o botão Adicionar para criar o primeiro.')}`;
   }
   return `<div class="top"><div><h1>Cadastros</h1><p>Rondas, salas, equipamentos, checklists, tipos de não conformidade e usuários.</p></div></div>
   <div class="tabs" role="tablist">${tabs.map(k=>`<button role="tab" data-act="cadTab" data-k="${k}" aria-selected="${st.cadTab===k}">${nm(k)}</button>`).join('')}</div>${body}`;
@@ -96,13 +96,18 @@ RH.pages.cadastros=()=>{
 const fotoPrev=()=>st.M.foto.thumb&&!st.M.foto.remove?`<img class="thumb" style="width:72px;height:72px" src="${st.M.foto.thumb}" alt="Foto atual">`:`<div class="thumb" style="width:72px;height:72px">${ic('dev',26)}</div>`;
 const itemsHtml=()=>st.M.items.map((it,i)=>`<div class="irow"><input type="text" data-itx="${i}" value="${esc(it.t)}" placeholder="Ex.: Equipamento limpo e sem avarias" aria-label="Item ${i+1}"><button type="button" class="ic-btn" data-act="itUp" data-i="${i}" aria-label="Subir">${ic('up',14)}</button><button type="button" class="ic-btn" data-act="itDn" data-i="${i}" aria-label="Descer">${ic('dn',14)}</button><button type="button" class="ic-btn" data-act="itDel" data-i="${i}" aria-label="Remover">${ic('trash',14)}</button></div>`).join('')||'<div class="hint" style="margin-bottom:8px">Nenhum item. Adicione os pontos que o inspetor deve verificar.</div>';
 
+/* Setor (salas e equipamentos): para cada setor, as salas ficam à esquerda e os equipamentos à direita */
 function salasPicker(f,v){
-  const sel=new Set(Array.isArray(v)?v:[]);
-  const salas=S.salas.filter(s=>s.ativo!==false||sel.has(s.id)).sort((a,b)=>(a.setor||'').localeCompare(b.setor||'')||a.nome.localeCompare(b.nome));
-  const grupos=[];salas.forEach(s=>{const k=s.setor||'Sem setor';let g=grupos.find(x=>x.k===k);if(!g)grupos.push(g={k,l:[]});g.l.push(s)});
-  const h=grupos.map((g,i)=>`<label class="gt"><input type="checkbox" data-setor-all="${i}" ${g.l.every(s=>sel.has(s.id))?'checked':''}> ${esc(g.k)} <small>(marcar todo o setor)</small></label>`
-    +g.l.map(s=>`<label class="chk"><input type="checkbox" data-sala data-g="${i}" value="${s.id}" ${sel.has(s.id)?'checked':''}> ${esc(s.nome)}${s.andar?` <small>${esc(s.andar)}</small>`:''}${s.ativo===false?' <small>(inativa)</small>':''}</label>`).join('')).join('');
-  return `<div class="full"><span class="hint" style="font-weight:600;color:var(--ink2)">${esc(f.l)} *</span><div class="chk-list" id="salas-pick" style="margin-top:6px">${h||'<small>Cadastre salas antes de criar uma ronda.</small>'}</div><small>As salas são percorridas na ordem exibida, com seus equipamentos e checklists.</small></div>`}
+  const sel=new Set(Array.isArray(v)?v:[]),seq=new Set(st.M.equipIds||[]),sn=x=>x||'Sem setor';
+  const salas=S.salas.filter(s=>s.ativo!==false||sel.has(s.id)),eqs=S.equipamentos.filter(e=>e.ativo!==false||seq.has(e.id));
+  const ks=[...new Set([...salas.map(s=>sn(s.setor)),...eqs.map(e=>sn(RH.setorEq(e)))])].sort((a,b)=>a.localeCompare(b));
+  const h=ks.map((k,i)=>{
+    const ls=salas.filter(s=>sn(s.setor)===k).sort((a,b)=>a.nome.localeCompare(b.nome)),le=eqs.filter(e=>sn(RH.setorEq(e))===k).sort((a,b)=>a.nome.localeCompare(b.nome));
+    const all=ls.every(s=>sel.has(s.id))&&le.every(e=>seq.has(e.id));
+    return `<div class="sg"><label class="gt"><input type="checkbox" data-setor-all="${i}" ${all?'checked':''}> ${esc(k)} <small>(marcar salas e equipamentos do setor)</small></label>
+    <div class="sg-c"><div><h5>Salas</h5>${ls.map(s=>`<label class="chk"><input type="checkbox" data-sala data-g="${i}" value="${s.id}" ${sel.has(s.id)?'checked':''}> ${esc(s.nome)}${s.andar?` <small>${esc(s.andar)}</small>`:''}${s.ativo===false?' <small>(inativa)</small>':''}</label>`).join('')||'<small>Nenhuma sala</small>'}</div>
+    <div><h5>Equipamentos</h5>${le.map(e=>`<label class="chk"><input type="checkbox" data-eq data-g="${i}" value="${e.id}" ${seq.has(e.id)?'checked':''}> ${esc(e.nome)}${e.patrimonio?` <small>${esc(e.patrimonio)}</small>`:''}${e.ativo===false?' <small>(inativo)</small>':''}</label>`).join('')||'<small>Nenhum equipamento</small>'}</div></div></div>`}).join('');
+  return `<div class="full"><span class="hint" style="font-weight:600;color:var(--ink2)">${esc(f.l)} *</span><div class="chk-list setor-pick" id="salas-pick" style="margin-top:6px">${h||'<small>Cadastre salas ou equipamentos antes de criar uma ronda.</small>'}</div><small>Salas e equipamentos são percorridos por setor, com os checklists vinculados a cada um.</small></div>`}
 
 /* dias da semana + horários em que a ronda deve ser realizada */
 const horasHtml=()=>st.M.horarios.map((h,i)=>`<div class="irow"><input type="time" data-hx="${i}" value="${esc(h)}" required aria-label="Horário ${i+1}"><button type="button" class="ic-btn" data-act="agDelH" data-i="${i}" aria-label="Remover horário">${ic('trash',14)}</button></div>`).join('')||'<div class="hint" style="margin-bottom:8px">Nenhum horário. Adicione ao menos um.</div>';
@@ -130,15 +135,24 @@ function fieldHtml(f,v){
   return `<label class="${cls}"><span>${esc(f.l)}${f.req?' *':''}</span>${inp}${f.hint?`<small>${esc(f.hint)}</small>`:''}</label>`;
 }
 
-function openEnt(ent,id){
-  const E=ENT[ent],d=id?{...byId(S[E.col],id)}:{};
-  st.M={ent,id,items:(d.itens||[]).map(x=>({...x})),foto:{thumb:d.thumb||null,fotoId:d.fotoId||null,full:null,remove:false},armed:false};
+/* duplicar: abre o formulário de novo cadastro já preenchido com os dados do original */
+function preparaCopia(ent,d){
+  d.nome=(d.nome||'')+' (cópia)';
+  if(ent==='users'){d.login='';d.hash=null;d.salt=null}
+  if(ent==='equipamentos')d.patrimonio='';
+  if(ent==='checklists')d.itens=(d.itens||[]).map(x=>({...x,id:'i'+uid()}));
+  delete d.id;delete d.demo}
+function openEnt(ent,id,dupId){
+  const E=ENT[ent],d=id||dupId?{...byId(S[E.col],id||dupId)}:{};
+  if(dupId)preparaCopia(ent,d);
+  if(ent==='equipamentos'&&!d.setor)d.setor=RH.setorEq(d);
+  st.M={ent,id,equipIds:ent==='modelos'?(Array.isArray(d.equipIds)?d.equipIds:RH.equipsDaRonda(d).map(e=>e.id)):null,items:(d.itens||[]).map(x=>({...x})),foto:{thumb:d.thumb||null,fotoId:d.fotoId||null,full:null,remove:false},armed:false};
   if(ent==='checklists'&&!id&&!st.M.items.length)st.M.items=[{id:'i'+uid(),t:''}];
   /* agenda da ronda (padrão: segunda a sexta às 08:00; ronda antiga sem agenda: todos os dias) */
   st.M.dias=RH.agenda.temAgenda(d)?[...d.dias]:(id?[0,1,2,3,4,5,6]:[1,2,3,4,5]);
   st.M.horarios=RH.agenda.temAgenda(d)?[...d.horarios]:['08:00'];
   st.M.orientManual=!!(d.orient||'').trim();
-  modal(`<div class="mh"><h3 style="font-size:16px">${id?'Editar':'Adicionar'} ${E.um}</h3><button class="ic-btn" data-act="closeModal" aria-label="Fechar">${ic('x',16)}</button></div>
+  modal(`<div class="mh"><h3 style="font-size:16px">${dupId?'Duplicar':id?'Editar':'Adicionar'} ${E.um}</h3><button class="ic-btn" data-act="closeModal" aria-label="Fechar">${ic('x',16)}</button></div>
   <form id="f-ent" autocomplete="off"><div class="mb"><div class="fg">${E.fields.map(f=>fieldHtml(f,d[f.k]??(f.def??(f.t==='check'?false:f.t==='salas'?[]:'')))).join('')}</div><div class="err" id="ent-err" role="alert"></div></div>
   <div class="mf">${id?`<button type="button" class="btn bad sp" data-act="delEnt" id="btn-del">${ic('trash',16)} Excluir</button>`:''}<button type="button" class="btn" data-act="closeModal">Cancelar</button><button class="btn pri" type="submit">Salvar</button></div></form>`,true);
   if(ent==='tiposNC'&&!st.M.orientManual&&d.nome)$('#ff-orient').value=RH.sugerirOrientacao(d.nome);
@@ -154,7 +168,7 @@ async function saveEnt(form){
       if(!dias.length)return err('Marque ao menos um dia da semana para a ronda.');
       if(!hs.length)return err('Informe ao menos um horário para a ronda.');
       data.dias=dias;data.horarios=hs;continue}
-    if(f.t==='salas'){data[f.k]=[...form.querySelectorAll('[data-sala]:checked')].map(x=>x.value);if(!data[f.k].length)return err('Marque ao menos uma sala para a ronda.');continue}
+    if(f.t==='salas'){data[f.k]=[...form.querySelectorAll('[data-sala]:checked')].map(x=>x.value);data.equipIds=[...form.querySelectorAll('[data-eq]:checked')].map(x=>x.value);if(!data[f.k].length&&!data.equipIds.length)return err('Marque ao menos uma sala ou um equipamento para a ronda.');continue}
     if(f.t==='check'){data[f.k]=form.elements[f.k].checked;continue}
     if(f.t==='password')continue;
     let v=(form.elements[f.k].value||'').trim();
@@ -203,7 +217,7 @@ Object.assign(RH.ACT,{
   genOrient:()=>{const n=($('#ff-nome')?.value||'').trim();if(!n){toast('Digite primeiro o nome do tipo.','bad');return}
     $('#ff-orient').value=RH.sugerirOrientacao(n);st.M.orientManual=false},
   cadTab:el=>{st.cadTab=el.dataset.k;RH.renderView()},
-  newEnt:()=>openEnt(st.cadTab), editEnt:el=>openEnt(st.cadTab,el.dataset.id),
+  newEnt:()=>openEnt(st.cadTab), editEnt:el=>openEnt(st.cadTab,el.dataset.id), dupEnt:el=>openEnt(st.cadTab,null,el.dataset.id),
   delEnt:deleteEnt,
   itAdd:()=>{st.M.items.push({id:'i'+uid(),t:''});$('#items').innerHTML=itemsHtml();const i=document.querySelectorAll('[data-itx]');i[i.length-1]?.focus()},
   itDel:el=>{st.M.items.splice(+el.dataset.i,1);$('#items').innerHTML=itemsHtml()},
@@ -218,8 +232,8 @@ Object.assign(RH.ACT,{
 });
 RH.ON_CHANGE.push(async el=>{
   /* picker de salas: caixa do setor marca/desmarca todas as salas dele */
-  if(el.dataset.setorAll!=null){document.querySelectorAll(`[data-sala][data-g="${el.dataset.setorAll}"]`).forEach(c=>c.checked=el.checked);return true}
-  if(el.dataset.sala!=null){const all=[...document.querySelectorAll(`[data-sala][data-g="${el.dataset.g}"]`)],h=document.querySelector(`[data-setor-all="${el.dataset.g}"]`);if(h)h.checked=all.every(c=>c.checked);return true}
+  if(el.dataset.setorAll!=null){document.querySelectorAll(`[data-sala][data-g="${el.dataset.setorAll}"],[data-eq][data-g="${el.dataset.setorAll}"]`).forEach(c=>c.checked=el.checked);return true}
+  if(el.dataset.sala!=null||el.dataset.eq!=null){const all=[...document.querySelectorAll(`[data-sala][data-g="${el.dataset.g}"],[data-eq][data-g="${el.dataset.g}"]`)],h=document.querySelector(`[data-setor-all="${el.dataset.g}"]`);if(h)h.checked=all.every(c=>c.checked);return true}
   if(el.dataset.import!=null){if(el.files[0]){try{const n=await RH.store.importJSON(await el.files[0].text());toast(n+' registros importados.')}catch(err){toast(err.message||'Não foi possível importar o arquivo.','bad')}el.value=''}return true}
   if(el.dataset.entFoto!=null){if(el.files[0]){try{Object.assign(st.M.foto,await RH.processImg(el.files[0]),{remove:false});$('#foto-prev').innerHTML=fotoPrev()}catch(err){toast('Não foi possível ler a imagem.','bad')}}return true}
   return false});

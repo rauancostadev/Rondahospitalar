@@ -12,12 +12,17 @@ RH.pages.historico=()=>{
   return `<div class="top"><div><h1>Histórico de rondas</h1><p>${ex.length} ronda${ex.length===1?'':'s'} no período</p></div>
   <div class="filters"><label class="field"><span>Período</span><select data-set="HF:periodo" data-num="1">${[7,30,90,365].map(d=>`<option value="${d}" ${d===HF.periodo?'selected':''}>Últimos ${d} dias</option>`).join('')}</select></label>
   <label class="field"><span>Ronda</span><select data-set="HF:ronda"><option value="">Todas as rondas</option>${[...S.modelos].sort((a,b)=>a.nome.localeCompare(b.nome)).map(m=>`<option value="${m.id}" ${m.id===HF.ronda?'selected':''}>${esc(m.nome)}</option>`).join('')}</select></label></div></div>
-  ${ex.length?`<div class="tw"><table><thead><tr><th>Data</th><th>Ronda</th><th>Inspetor</th><th>Conformidade</th><th>Itens</th><th>NCs</th></tr></thead><tbody>${ex.slice(0,200).map(e=>`<tr data-act="rondaOpen" data-id="${esc(e.id)}"><td class="num">${fdt(e.ts)}</td><td><b>${esc(e.nome)}</b><small>${e.docs.length} sala${e.docs.length===1?'':'s'}</small></td><td>${esc(e.inspNome)}</td><td class="num"><span class="pill ${e.pct>=meta?'okp':'st-aberta'}">${pc(e.pct)}</span></td><td class="num">${e.c+e.nc+e.na}</td><td class="num">${e.nc||'—'}</td></tr>`).join('')}</tbody></table></div>`:empty('Nenhuma ronda no período','Registre uma ronda em Nova ronda.')}`;
+  ${ex.length?`<div class="tw"><table><thead><tr><th>Data</th><th>Ronda</th><th>Inspetor</th><th>Conformidade</th><th>Itens</th><th>NCs</th></tr></thead><tbody>${ex.slice(0,200).map(e=>`<tr data-act="rondaOpen" data-id="${esc(e.id)}"><td class="num">${fdt(e.ts)}</td><td><b>${esc(e.nome)}</b><small>${qtd(e)}</small></td><td>${esc(e.inspNome)}</td><td class="num"><span class="pill ${e.pct>=meta?'okp':'st-aberta'}">${pc(e.pct)}</span></td><td class="num">${e.c+e.nc+e.na}</td><td class="num">${e.nc||'—'}</td></tr>`).join('')}</tbody></table></div>`:empty('Nenhuma ronda no período','Registre uma ronda em Nova ronda.')}`;
 };
 
 /* NCs geradas por uma execução (documentos novos têm execId; antigos, só rondaId) */
 const ncsDa=e=>S.ncs.filter(n=>n.execId===e.id||e.docs.some(d=>d.id===n.rondaId));
 
+/* "2 salas · 1 equipamento" de uma execução (documentos antigos por sala continuam contando como salas) */
+function qtd(e){
+  const ns=e.docs.filter(r=>r.salaId||!(r.itens||[]).every(i=>i.a==='e')).length,eq=new Set();
+  e.docs.forEach(r=>(r.itens||[]).forEach(i=>{if(i.a==='e')eq.add(i.i)}));
+  return [ns?`${ns} sala${ns===1?'':'s'}`:'',eq.size?`${eq.size} equipamento${eq.size===1?'':'s'}`:''].filter(Boolean).join(' · ')||'—'}
 function openRonda(id){
   const e=RH.execs(S.rondas.filter(r=>(r.execId||r.id)===id))[0];if(!e)return;
   const porSala=e.docs.map(r=>{
